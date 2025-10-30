@@ -1,7 +1,5 @@
 # ASP.NET Core
-# Build and test ASP.NET Core projects targeting .NET Core.
-# Add steps that run tests, create a NuGet package, deploy, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
+# Build and deploy ASP.NET Core web app to Azure Web App
 
 trigger:
 - master
@@ -12,6 +10,62 @@ pool:
 variables:
   buildConfiguration: 'Release'
 
-steps:
-- script: dotnet build --configuration $(buildConfiguration)
-  displayName: 'dotnet build $(buildConfiguration)'
+stages:
+# ------------------------
+# Stage 1: Build
+# ------------------------
+- stage: Build
+  displayName: "Build Stage"
+  jobs:
+  - job: BuildJob
+    displayName: "Build the project"
+    steps:
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '8.x' # adjust if using .NET 7 or 6
+        installationPath: $(Agent.ToolsDirectory)/dotnet
+
+    - script: dotnet restore
+      displayName: 'Restore dependencies'
+
+    - script: dotnet build --configuration $(buildConfiguration)
+      displayName: 'Build project'
+
+    - script: dotnet publish --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)
+      displayName: 'Publish project'
+
+    - publish: $(Build.ArtifactStagingDirectory)
+      artifact: drop
+      displayName: 'Publish build artifacts'
+
+
+# ------------------------
+# Stage 2: Deploy
+# ------------------------
+- stage: Deploy
+  displayName: "Deploy Stage"
+  dependsOn: Build
+  jobs:
+  - deployment: DeployWebApp
+    displayName: "Deploy to Azure Web App"
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - task: AzureWebApp@1
+            displayName: "Deploy to Azure Web App"
+            inputs:
+              azureSubscription: 'myserviceconnection'
+              appType: 'webApp'
+              appName: 'mywebapp654'
+              package: '$(Pipeline.Workspace)/drop'
+              runtimeStack: 'DOTNETCORE|8.0'
+              deployToSlotOrASE: false
+              enableCustomDeployment: true
+              useManagedIdentity: true
+              managedIdentityId: '/subscriptions/<subscription-id>/resourceGroups/<resource-group-name>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/myidm123'
